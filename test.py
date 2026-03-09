@@ -95,7 +95,7 @@ class ElectionApp:
         self.root.title("Nepal PR Seat Calculator Pro")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        w, h = 1280, 720 
+        w, h = 1280, 900 
         ws, hs = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(f"{w}x{h}+{int(ws/2 - w/2)}+{int(hs/2 - h/2)}")
         self.root.configure(bg="#f8f9fa")
@@ -145,6 +145,9 @@ class ElectionApp:
 
         ctrl_bar = tk.Frame(root, bg="white", pady=15, highlightbackground="#e1e4e8", highlightthickness=1)
         ctrl_bar.pack(fill="x", padx=25, pady=10)
+        self.body_frame = tk.Frame(root, bg="#f8f9fa")
+        self.body_frame.pack(fill="both", expand=True)
+    
         btn_config = {"font": (FONT_NAME, 12, "bold"), "fg": "white", "padx": 15, "relief": "flat"}
 
         tk.Button(ctrl_bar, text="📁 Load Excel", command=self.load_file, bg="#34495e", **btn_config).grid(row=0, column=0, padx=15)
@@ -156,15 +159,16 @@ class ElectionApp:
         tk.Button(ctrl_bar, text="💾 Export", command=self.export_file, bg="#2c3e50", **btn_config).grid(row=0, column=4, padx=10)
         tk.Button(ctrl_bar, text="🔄 Reset", command=self.reset_app, bg="#95a5a6", **btn_config).grid(row=0, column=5, padx=15)
 
-        self.main_container = tk.PanedWindow(root, orient="horizontal", bg="#f8f9fa", sashwidth=6)
+        self.main_container = tk.PanedWindow(self.body_frame, orient="horizontal", bg="#f8f9fa", sashwidth=6)
         self.main_container.pack(fill="both", expand=True, padx=25)
+        self.main_container.bind("<B1-Motion>", lambda e: "break")
 
-        self.table_frame = tk.Frame(self.main_container, bg="white")
-        self.main_container.add(self.table_frame, width=500)
+        self.table_frame = tk.PanedWindow(self.main_container, orient="vertical", bg="white", sashwidth=4)
+        self.main_container.add(self.table_frame, width=500, stretch="never")
 
         # --- Qualified Parties Section ---
         self.qualified_frame = tk.Frame(self.table_frame, bg="white")
-        self.qualified_frame.pack(fill="both", expand=True)
+        self.table_frame.add(self.qualified_frame, height=320)
 
         tk.Label(
             self.qualified_frame,
@@ -198,7 +202,7 @@ class ElectionApp:
 
         # --- Unqualified Parties Section ---
         self.unqualified_frame = tk.Frame(self.table_frame, bg="#f4f4f4")
-        self.unqualified_frame.pack(fill="both", expand=True)
+        self.table_frame.add(self.unqualified_frame)
 
         tk.Label(
             self.unqualified_frame,
@@ -208,30 +212,26 @@ class ElectionApp:
             fg="#7f8c8d"
         ).pack(anchor="w", padx=10, pady=(5,2))
 
-        self.unqualified_grid = tk.Frame(self.unqualified_frame, bg="#f4f4f4")
-        self.unqualified_grid.pack(fill="both", expand=True, padx=10, pady=5)
+        self.unqualified_canvas = tk.Canvas(self.unqualified_frame, bg="#f4f4f4", height=180, highlightthickness=0)
+        self.unqualified_canvas.pack(side="left", fill="both", expand=True)
 
+        scrollbar = tk.Scrollbar(self.unqualified_frame, orient="vertical", command=self.unqualified_canvas.yview)
+        scrollbar.pack(side="right", fill="y")
+
+        self.unqualified_canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.unqualified_grid = tk.Frame(self.unqualified_canvas, bg="#f4f4f4")
+        self.unqualified_canvas.create_window((0,0), window=self.unqualified_grid, anchor="nw")
+
+        self.unqualified_grid.bind(
+            "<Configure>",
+            lambda e: self.unqualified_canvas.configure(scrollregion=self.unqualified_canvas.bbox("all"))
+        )
         self.right_pane = tk.PanedWindow(self.main_container, orient="vertical", bg="#f8f9fa", sashwidth=6)
         self.main_container.add(self.right_pane)
 
         self.chart_frame = tk.Frame(self.right_pane, bg="white", bd=1, relief="solid")
-        self.right_pane.add(self.chart_frame, height=516) # 63% Chart Area
-
-        # self.legend_frame = tk.Frame(self.right_pane, bg="white", bd=1, relief="solid")
-        # self.right_pane.add(self.legend_frame, height=304) # 37% Legend Area
-
-        # tk.Label(self.legend_frame, text="   Legend", font=(FONT_NAME, 14, "bold"), bg="white", 
-        #          fg="#2c3e50").pack(anchor="w", padx=10, pady=(8, 2))
-
-        # self.legend_canvas = tk.Canvas(self.legend_frame, bg="white", highlightthickness=0)
-        # self.legend_scrollbar = tk.Scrollbar(self.legend_frame, orient="vertical", command=self.legend_canvas.yview)
-        # self.legend_canvas.configure(yscrollcommand=self.legend_scrollbar.set)
-        # self.legend_scrollbar.pack(side="right", fill="y")
-        # self.legend_canvas.pack(side="left", fill="both", expand=True)
-
-        # self.legend_container = tk.Frame(self.legend_canvas, bg="white")
-        # self.legend_window = self.legend_canvas.create_window((0, 0), window=self.legend_container, anchor="nw")
-        # self.legend_container.bind("<Configure>", lambda e: self.legend_canvas.configure(scrollregion=self.legend_canvas.bbox("all")))
+        self.right_pane.add(self.chart_frame)
 
         self.summary_frame = tk.Frame(root, bg="#ecf0f1", height=80)
         self.summary_frame.pack(fill="x", side="bottom", padx=25)
@@ -240,15 +240,15 @@ class ElectionApp:
         self.lbl_total_votes = tk.Label(self.summary_frame, text="Total Valid Votes: -", **lbl_style); self.lbl_total_votes.pack(side="left", padx=40)
         self.lbl_threshold = tk.Label(self.summary_frame, text="3% Threshold: -", **lbl_style); self.lbl_threshold.pack(side="left", padx=40)
         self.lbl_qualified = tk.Label(self.summary_frame, text="Qualified Parties: -", **lbl_style); self.lbl_qualified.pack(side="left", padx=40)
-        self.right_pane.bind("<Configure>", self.maintain_pane_ratio)
+        # self.right_pane.bind("<Configure>", self.maintain_pane_ratio)
 
-    def maintain_pane_ratio(self, event=None):
-        try:
-            total_height = self.right_pane.winfo_height()
-            chart_height = int(total_height * 0.63)
-            self.right_pane.sash_place(0, 0, chart_height)
-        except:
-            pass
+    # def maintain_pane_ratio(self, event=None):
+    #     try:
+    #         total_height = self.right_pane.winfo_height()
+    #         chart_height = int(total_height * 0.63)
+    #         self.right_pane.sash_place(0, 0, chart_height)
+    #     except:
+    #         pass
 
     def on_closing(self):
         try:
@@ -392,7 +392,7 @@ class ElectionApp:
 
                 col += 1
 
-                if col == 2:
+                if col == 4:
                     col = 0
                     row += 1
 
@@ -402,76 +402,6 @@ class ElectionApp:
 
         except Exception as e:
             messagebox.showerror("Web Fetch Error", str(e))
-
-
-    # def clear_legend(self):
-    #     for widget in self.legend_container.winfo_children(): widget.destroy()
-    #     self.legend_canvas.yview_moveto(0)
-
-    # def update_legend(self, chart_data, colors):
-
-    #     self.legend_images.clear()
-    #     self.clear_legend()
-
-    #     total_seats = int(chart_data["Seats"].sum())
-
-    #     max_cols = 2
-
-    #     for idx, (_, row) in enumerate(chart_data.iterrows()):
-
-    #         logo_url = self.logo_map.get(row["Party"])
-
-    #         box_row, box_col = idx // max_cols, idx % max_cols
-
-    #         item = tk.Frame(self.legend_container, bg="white")
-    #         item.grid(row=box_row, column=box_col, sticky="nw", padx=(24,70), pady=3)
-
-    #         color_hex = matplotlib.colors.to_hex(colors[idx % len(colors)])
-
-    #         # ----- draw logo -----
-
-    #         if logo_url:
-    #             try:
-
-    #                 if logo_url not in self.logo_cache:
-
-    #                     r = requests.get(logo_url)
-    #                     img = Image.open(BytesIO(r.content)).resize((28,28))
-
-    #                     self.logo_cache[logo_url] = ImageTk.PhotoImage(img)
-
-    #                 logo = self.logo_cache[logo_url]
-
-    #                 lbl = tk.Label(item, image=logo, bg="white")
-    #                 lbl.pack(side="left", padx=(0,12))
-
-    #                 self.legend_images.append(logo)
-
-    #             except:
-    #                 tk.Label(item, bg=color_hex, width=2, height=1).pack(side="left", padx=(0,12))
-
-    #         else:
-    #             tk.Label(item, bg=color_hex, width=2, height=1).pack(side="left", padx=(0,12))
-
-    #         pct = (row["Seats"] / total_seats * 100) if total_seats else 0
-
-    #         text_block = f"{row['Party']}\nSeats: {int(row['Seats'])} | Vote Share: {pct:.1f}%"
-
-    #         tk.Label(
-    #             item,
-    #             text=text_block,
-    #             font=(FONT_NAME,11),
-    #             bg="white",
-    #             fg="#2c3e50",
-    #             anchor="w",
-    #             justify="left",
-    #             wraplength=340
-    #         ).pack(side="left", anchor="w")
-
-    #     for c in range(max_cols):
-    #         self.legend_container.grid_columnconfigure(c, minsize=460)
-
-    #     self.legend_canvas.configure(scrollregion=self.legend_canvas.bbox("all"))
 
     def update_chart(self):
         """Refined adaptive font colors for better visibility on light blue [cite: 2026-03-07]."""
@@ -524,8 +454,8 @@ class ElectionApp:
 
             angle = (wedge.theta1 + wedge.theta2) / 2
 
-            x = 1.11 * np.cos(np.deg2rad(angle))
-            y = 1.11 * np.sin(np.deg2rad(angle))
+            x = 1.1 * np.cos(np.deg2rad(angle))
+            y = 1.1 * np.sin(np.deg2rad(angle))
 
             ab = AnnotationBbox(imagebox, (x, y), frameon=False)
 

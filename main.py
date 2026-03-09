@@ -124,7 +124,7 @@ class ElectionApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # --- Initial window geometry ---
-        w, h = 1280, 900
+        w, h = 1280, 720
         ws, hs = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         self.root.geometry(f"{w}x{h}+{int(ws/2 - w/2)}+{int(hs/2 - h/2)}")
         self.root.configure(bg="#f8f9fa")
@@ -224,22 +224,22 @@ class ElectionApp:
 
         # Left tables pane
         self.table_frame = tk.PanedWindow(self.main_container, orient="vertical", bg="white", sashwidth=4)
-        self.main_container.add(self.table_frame, width=500, stretch="never")
+        self.main_container.add(self.table_frame, width=480)
 
         self.qualified_frame = tk.Frame(self.table_frame, bg="white")
-        self.table_frame.add(self.qualified_frame, height=320)
+        self.table_frame.add(self.qualified_frame, height=300)
 
         tk.Label(self.qualified_frame, text="Qualified Parties", font=(FONT_NAME, 14, "bold"), bg="white", fg=PRIMARY_TEXT).pack(anchor="w", padx=10, pady=(5, 2))
 
         self.tree_qualified = ttk.Treeview(self.qualified_frame, columns=("Party", "Votes", "Seats"), show="tree headings", height=8)
         self.tree_qualified.heading("#0", text="Symbol")
-        self.tree_qualified.column("#0", width=60, anchor="center")
+        self.tree_qualified.column("#0", width=50, anchor="center")
         self.tree_qualified.heading("Party", text="Political Party Name")
         self.tree_qualified.column("Party", width=200, anchor="w")
         self.tree_qualified.heading("Votes", text="Votes")
         self.tree_qualified.column("Votes", width=100, anchor="center")
         self.tree_qualified.heading("Seats", text="Seats")
-        self.tree_qualified.column("Seats", width=60, anchor="center")
+        self.tree_qualified.column("Seats", width=50, anchor="center")
         self.tree_qualified.pack(fill="both", expand=True)
 
         # Unqualified

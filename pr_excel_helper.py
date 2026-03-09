@@ -73,23 +73,23 @@ def update_excel_from_web(
     updated = 0
     not_found = []
 
-    for r in range(2, ws.max_row + 1):
-        party_cell = ws.cell(row=r, column=party_col)
-        party_key = norm(party_cell.value)
+    # Sort data by votes descending (same as website)
+    df = df.sort_values("Votes", ascending=False).reset_index(drop=True)
 
-        if not party_key:
-            continue
+    start_row = 2
+    
+    if len(df) > ws.max_row - 1:
+        raise ValueError("Excel sheet does not have enough rows for all parties.")
 
-        if party_key in lookup:
-            votes, url = lookup[party_key]
+    for i, row in df.iterrows():
 
-            ws.cell(row=r, column=party_col).value = party_key
-            ws.cell(row=r, column=votes_col).value = votes
-            ws.cell(row=r, column=logo_col).value = url
+        excel_row = start_row + i
 
-            updated += 1
-        else:
-            not_found.append(party_key)
+        ws.cell(row=excel_row, column=party_col).value = str(row["Party"]).strip()
+        ws.cell(row=excel_row, column=votes_col).value = int(row["Votes"])
+        ws.cell(row=excel_row, column=logo_col).value = str(row["Logo"]).strip()
+
+    updated = len(df)
 
     wb.save(file_path)
 
@@ -101,39 +101,35 @@ def update_excel_from_web(
 
 
 def read_pr_from_excel(file_path):
-    """
-    Read PR data from Excel.
-
-    Expected columns:
-        Party
-        Votes
-        Logo_URL (optional)
-
-    Returns:
-        df -> columns [Party, Votes, Logo]
-        total_votes
-    """
 
     df = pd.read_excel(file_path)
 
     if "Party" not in df.columns or "Votes" not in df.columns:
         raise ValueError("Excel must contain columns: Party and Votes")
 
-    df["Votes"] = pd.to_numeric(df["Votes"], errors="coerce").fillna(0)
+    # Clean Party names
+    df["Party"] = df["Party"].astype(str).str.strip()
+    df = df[df["Party"] != ""]
 
+    # Clean Votes
+    df["Votes"] = (
+        df["Votes"]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("\xa0", "", regex=False)
+        .str.strip()
+    )
+
+    df["Votes"] = pd.to_numeric(df["Votes"], errors="coerce").fillna(0).astype(int)
+
+    # Handle Logo column
     if "Logo_URL" in df.columns:
         df = df.rename(columns={"Logo_URL": "Logo"})
-    else:
+    elif "Logo" not in df.columns:
         df["Logo"] = None
 
     df = df[["Party", "Votes", "Logo"]].copy()
 
-    df = df[["Party", "Votes", "Logo"]].copy()
-
-    df["Party"] = df["Party"].astype(str).str.strip()
-    df["Votes"] = pd.to_numeric(df["Votes"], errors="coerce").fillna(0).astype(int)
-
-    # Fix logo values
     df["Logo"] = df["Logo"].where(pd.notna(df["Logo"]), None)
 
     total_votes = int(df["Votes"].sum())

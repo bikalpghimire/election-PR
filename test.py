@@ -100,7 +100,10 @@ def calculate_seats(df, total_seats, threshold_pct, manual_total_votes):
     eligible_df["Votes"] = eligible_df["Votes"].astype(float)
 
     for _ in range(total_seats):
-        eligible_df["Quotient"] = eligible_df["Votes"] / (2 * eligible_df["Seats"] + 1)
+        eligible_df["Divisor"] = eligible_df["Seats"].apply(
+            lambda s: 1.4 if s == 0 else (2 * s + 1)
+        )
+        eligible_df["Quotient"] = eligible_df["Votes"] / eligible_df["Divisor"]
         winner_idx = eligible_df["Quotient"].idxmax()
         eligible_df.at[winner_idx, "Seats"] += 1
 
@@ -137,6 +140,7 @@ class ElectionApp:
         self.chart_logo_cache = {}
         self.table_images = []
         self.logo_map = {}
+        self.data_source = ""
 
         # Network session
         self.session = requests.Session()
@@ -210,10 +214,6 @@ class ElectionApp:
         self.seats_entry.insert(0, "110")
         self.seats_entry.grid(row=0, column=5, padx=5)
 
-        # 6) Export
-        tk.Button(ctrl_bar, text="💾 Export", command=self.export_file,
-                bg="#2c3e50", **btn_cfg).grid(row=0, column=6, padx=10)
-        
         # Body
         self.body_frame = tk.Frame(root, bg="#f8f9fa")
         self.body_frame.grid(row=2, column=0, sticky="nsew")
@@ -276,7 +276,7 @@ class ElectionApp:
         self.lbl_threshold = tk.Label(self.summary_frame, text="3% Threshold: -", **lbl_style)
         self.lbl_threshold.pack(side="left", padx=40)
 
-        self.lbl_total_votes = tk.Label(self.summary_frame, text="Total Valid Votes: -", **lbl_style)
+        self.lbl_total_votes = tk.Label(self.summary_frame, text="Total Eligible Votes: -", **lbl_style)
         self.lbl_total_votes.pack(side="left", padx=40)
 
         # Minimum size
@@ -318,7 +318,7 @@ class ElectionApp:
         if f:
             self.filepath = f
             _beep()
-            
+
     def update_excel_from_web_btn(self):
         if not self.filepath:
             messagebox.showwarning("Select Excel", "Please select an Excel file first.")
@@ -338,6 +338,8 @@ class ElectionApp:
             # 1) Read standardized data from Excel (Party, Votes, Logo) + total_votes
             df, total_votes = read_pr_from_excel(self.filepath)
 
+            self.data_source = self.filepath
+
             # 2) Compute seats exactly like the web flow
             seats = int(self.seats_entry.get())
             base = df[["Party", "Votes"]].copy()
@@ -349,15 +351,20 @@ class ElectionApp:
             # 3) Attach logos (already standardized column in df)
             logo_map = dict(zip(df["Party"], df["Logo"]))
             res["Logo"] = res["Party"].map(logo_map)
+            res = res.sort_values(by="Votes", ascending=False)
 
             # 4) Update UI state
             self.result_df = res
-            
+
             # Populate unqualified parties (same logic as web mode)
             all_parties = set(df["Party"])
             qualified = set(res["Party"])
 
-            self.unqualified_df = df[~df["Party"].isin(qualified)].copy()
+            self.unqualified_df = (
+                df[~df["Party"].isin(qualified)]
+                .sort_values(by="Votes", ascending=False)
+                .copy()
+            )
 
             self.clear_unqualified_grid()
 
@@ -395,7 +402,7 @@ class ElectionApp:
                 if col == 4:
                     col = 0
                     row += 1
-            
+
             self.total_input_votes = float(total_votes)
             self.total_valid_votes = total_valid
             self.lbl_total_input_votes.config(text=f"Total Votes: {int(self.total_input_votes):,}")
@@ -404,6 +411,45 @@ class ElectionApp:
 
             # 5) Redraw table + chart
             self.refresh_table_and_chart()
+
+            from openpyxl import load_workbook
+
+            try:
+
+                wb = load_workbook(self.filepath)
+
+                ws_votes = wb["PR_votes"]
+                ws_summary = wb["Summary"]
+
+                # Find the seat column in summary
+                seats_col = None
+                for cell in ws_summary[1]:
+                    if cell.value and "seat" in str(cell.value).lower():
+                        seats_col = cell.col_idx
+
+                if seats_col is None:
+                    raise ValueError("Seats column not found in Summary sheet")
+
+                # Map party → seats
+                seat_map = dict(zip(self.result_df["Party"], self.result_df["Seats"]))
+
+                # Loop through PR_votes rows
+                for r in range(2, ws_votes.max_row + 1):
+
+                    party = ws_votes.cell(row=r, column=2).value  # column B = Party
+
+                    if party:
+                        party = str(party).strip()
+
+                        seats = seat_map.get(party, 0)
+
+                        # Write to same row in Summary sheet
+                        ws_summary.cell(row=r, column=seats_col).value = int(seats)
+
+                wb.save(self.filepath)
+
+            except Exception as e:
+                print("Summary update error:", e)
         except Exception as e:
             messagebox.showerror("Excel Run Error", str(e))
 
@@ -411,6 +457,8 @@ class ElectionApp:
         try:
             self.table_images.clear()
             df, total_votes = fetch_pr_votes()
+            self.data_source = "result.election.gov.np"
+
             self.logo_map = dict(zip(df["Party"], df.get("Logo", pd.Series([None]*len(df)))))
             self.total_input_votes = total_votes
 
@@ -490,7 +538,7 @@ class ElectionApp:
             _beep()
         except Exception as e:
             messagebox.showerror("Web Fetch Error", str(e))
-    
+
     def refresh_table_and_chart(self):
         """Refresh table and chart when running from Excel."""
 
@@ -576,7 +624,16 @@ class ElectionApp:
 
         total_seats = int(chart_data["Seats"].sum())
         colors = list(matplotlib.colormaps.get_cmap("tab20").colors)
-        slice_colors = colors[:len(chart_data)]
+        slice_colors = [
+            "#87CEEB",  # Sky blue
+            "#228B22",  # Tree green
+            "#8B0000",  # Dark red
+            "#FF6F6F",  # Light red
+            "#8B5A2B",  # Mud
+            "#A0522D"   # Wood
+        ]
+
+        slice_colors = (slice_colors * 10)[:len(chart_data)]
 
         def autopct_func(pct):
             seats = int(round(pct * total_seats / 100.0))
@@ -622,11 +679,23 @@ class ElectionApp:
         ax.text(0, 0.15, f"{total_seats}", ha="center", va="center", fontsize=30, fontweight="bold", color=PRIMARY_TEXT)
         ax.text(0, 0.0, "Total Seats", ha="center", va="center", fontsize=12, fontweight="bold", color=SUBTLE_TEXT)
         ax.text(0, -0.15, f"{int(self.total_valid_votes):,}", ha="center", va="center", fontsize=16, fontweight="bold", color=ACCENT_BLUE)
-        ax.text(0, -0.25, "Total Valid Votes", ha="center", va="center", fontsize=10, fontweight="bold", color=SUBTLE_TEXT)
+        ax.text(0, -0.25, "Total Eligible Votes", ha="center", va="center", fontsize=10, fontweight="bold", color=SUBTLE_TEXT)
 
         fig.suptitle("PR Seat Allocation Result", fontfamily=FONT_NAME, fontsize=20, fontweight="bold", y=0.99, color=PRIMARY_TEXT)
         ax.axis("equal")
-        fig.subplots_adjust(top=0.90, bottom=0.04, left=0.04, right=0.96)
+        fig.subplots_adjust(top=0.92, bottom=0.04, left=0.04, right=0.96)
+
+        fig.text(
+            0.01,
+            0.01,
+            f"Source: {self.data_source}",
+            ha="left",
+            va="bottom",
+            fontsize=10,
+            color="#2c3e50",
+            fontfamily=FONT_NAME,
+            fontweight="bold",
+        )
 
         # Pan/Zoom
         def on_scroll(event):
@@ -729,27 +798,6 @@ class ElectionApp:
         self.lbl_threshold.config(text="3% Threshold: -")
         self.lbl_total_votes.config(text="Total Valid Votes: -")
         _beep()
-
-    def export_file(self):
-        if self.result_df is not None:
-            path = filedialog.asksaveasfilename(initialfile="Nepal_PR_result.xlsx", defaultextension=".xlsx")
-            if path:
-                writer = pd.ExcelWriter(path, engine="xlsxwriter")
-                self.result_df.to_excel(writer, index=False, sheet_name="PR_Results")
-                worksheet = writer.sheets["PR_Results"]
-                max_row, max_col = self.result_df.shape
-                columns = [{"header": col} for col in self.result_df.columns]
-                worksheet.add_table(0, 0, max_row, max_col - 1, {"columns": columns, "style": "Table Style Medium 9"})
-                for i, col in enumerate(self.result_df.columns):
-                    width = max(self.result_df[col].astype(str).str.len().max(), len(col)) + 2
-                    worksheet.set_column(i, i, width)
-                writer.close()
-                messagebox.showinfo("Success", "Export Complete.")
-                try:
-                    if sys.platform == "win32":
-                        os.startfile(os.path.dirname(path))  # type: ignore[attr-defined]
-                except Exception:
-                    pass
 
 
 if __name__ == "__main__":

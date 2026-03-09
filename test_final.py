@@ -37,7 +37,6 @@ from io import BytesIO
 from scraper import fetch_pr_votes
 import numpy as np
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from pr_excel_helper import update_excel_from_web, read_pr_from_excel
 
 # --- Global Configuration ---
 FONT_NAME = "Kokila"
@@ -181,39 +180,22 @@ class ElectionApp:
         tk.Label(header, text="Nepal Election PR Seat Calculator", font=(FONT_NAME, 26, "bold"), fg="white", bg="#2c3e50").place(relx=0.5, rely=0.5, anchor="center")
         tk.Label(header, text="Developed By: Pumori Engineering Services", font=(FONT_NAME, 12), fg="#bdc3c7", bg="#2c3e50").place(relx=1.0, rely=0.5, anchor="e", x=-30)
 
-        # CONTROL BAR (updated order)
-        ctrl_bar = tk.Frame(root, bg="white", pady=12, highlightbackground="#e1e4e8", highlightthickness=1)
+        # Controls
+        ctrl_bar = tk.Frame(root, bg="white", pady=15, highlightbackground="#e1e4e8", highlightthickness=1)
         ctrl_bar.grid(row=1, column=0, sticky="ew", padx=25, pady=10)
 
-        btn_cfg = {"font": (FONT_NAME, 12, "bold"), "fg": "white", "padx": 15, "relief": "flat"}
+        btn_config = {"font": (FONT_NAME, 12, "bold"), "fg": "white", "padx": 15, "relief": "flat"}
+        tk.Button(ctrl_bar, text="\U0001F4C1 Load Excel", command=self.load_file, bg="#34495e", **btn_config).grid(row=0, column=0, padx=15)
+        tk.Button(ctrl_bar, text="\U0001F310 Load From Web", command=self.fetch_from_web, bg="#16a085", **btn_config).grid(row=0, column=1, padx=10)
 
-        # 1) Run From Web
-        tk.Button(ctrl_bar, text="🌐 Run From Web", command=self.run_from_web,
-                bg="#16a085", **btn_cfg).grid(row=0, column=0, padx=10)
-
-        # 2) Load Excel
-        tk.Button(ctrl_bar, text="📁 Load Excel", command=self.load_file,
-                bg="#34495e", **btn_cfg).grid(row=0, column=1, padx=10)
-
-        # 3) Update Excel From Web
-        tk.Button(ctrl_bar, text="🔄 Update Excel from Web", command=self.update_excel_from_web_btn,
-                bg="#27ae60", **btn_cfg).grid(row=0, column=2, padx=10)
-
-        # 4) Run From Excel
-        tk.Button(ctrl_bar, text="▶ Run From Excel", command=self.run_from_excel_btn,
-                bg="#006994", **btn_cfg).grid(row=0, column=3, padx=10)
-
-        # 5) Total PR Seats textbox
-        tk.Label(ctrl_bar, text="Total PR Seats:", bg="white", fg="#2c3e50",
-                font=(FONT_NAME, 12, "bold")).grid(row=0, column=4, padx=(25, 5))
-        self.seats_entry = tk.Entry(ctrl_bar, width=8, font=(FONT_NAME, 12), justify="center")
+        self.seats_entry = tk.Entry(ctrl_bar, width=8, font=(FONT_NAME, 12), justify="center", bd=2, relief="groove")
         self.seats_entry.insert(0, "110")
-        self.seats_entry.grid(row=0, column=5, padx=5)
+        self.seats_entry.grid(row=0, column=2, padx=10)
 
-        # 6) Export
-        tk.Button(ctrl_bar, text="💾 Export", command=self.export_file,
-                bg="#2c3e50", **btn_cfg).grid(row=0, column=6, padx=10)
-        
+        tk.Button(ctrl_bar, text="⚡ Calculate", command=self.process, bg="#006994", **btn_config).grid(row=0, column=3, padx=10)
+        tk.Button(ctrl_bar, text="\U0001F4BE Export", command=self.export_file, bg="#2c3e50", **btn_config).grid(row=0, column=4, padx=10)
+        tk.Button(ctrl_bar, text="\U0001F504 Reset", command=self.reset_app, bg="#95a5a6", **btn_config).grid(row=0, column=5, padx=15)
+
         # Body
         self.body_frame = tk.Frame(root, bg="#f8f9fa")
         self.body_frame.grid(row=2, column=0, sticky="nsew")
@@ -318,96 +300,8 @@ class ElectionApp:
         if f:
             self.filepath = f
             _beep()
-            
-    def update_excel_from_web_btn(self):
-        if not self.filepath:
-            messagebox.showwarning("Select Excel", "Please select an Excel file first.")
-            return
-        try:
-            result = update_excel_from_web(self.filepath)
-            messagebox.showinfo("Update Complete",
-                                f"Updated: {result['updated']}\nMissing: {len(result['not_found'])}")
-        except Exception as e:
-            messagebox.showerror("Update Failed", str(e))
 
-    def run_from_excel_btn(self):
-        if not self.filepath:
-            messagebox.showwarning("Select Excel", "Please select an Excel file first.")
-            return
-        try:
-            # 1) Read standardized data from Excel (Party, Votes, Logo) + total_votes
-            df, total_votes = read_pr_from_excel(self.filepath)
-
-            # 2) Compute seats exactly like the web flow
-            seats = int(self.seats_entry.get())
-            base = df[["Party", "Votes"]].copy()
-            res, _, thresh, _, _, total_valid = calculate_seats(base, seats, 3.0, float(total_votes))
-            if res is None or res.empty:
-                messagebox.showwarning("No Qualified Parties", "No parties met the threshold.")
-                return
-
-            # 3) Attach logos (already standardized column in df)
-            logo_map = dict(zip(df["Party"], df["Logo"]))
-            res["Logo"] = res["Party"].map(logo_map)
-
-            # 4) Update UI state
-            self.result_df = res
-            
-            # Populate unqualified parties (same logic as web mode)
-            all_parties = set(df["Party"])
-            qualified = set(res["Party"])
-
-            self.unqualified_df = df[~df["Party"].isin(qualified)].copy()
-
-            self.clear_unqualified_grid()
-
-            row = 0
-            col = 0
-
-            for _, r in self.unqualified_df.iterrows():
-
-                frame = tk.Frame(self.unqualified_grid, bg="#f4f4f4")
-                frame.grid(row=row, column=col, padx=8, pady=3, sticky="w")
-
-                logo_url = r.get("Logo")
-                logo_img = None
-
-                if isinstance(logo_url, str) and logo_url.strip():
-                    try:
-                        if logo_url not in self.logo_cache:
-                            response = self.session.get(logo_url, timeout=REQUEST_TIMEOUT)
-                            img = Image.open(BytesIO(response.content)).resize((20,20))
-                            img = make_white_transparent(img)
-                            self.logo_cache[logo_url] = ImageTk.PhotoImage(img)
-
-                        logo_img = self.logo_cache[logo_url]
-
-                    except Exception:
-                        pass
-
-                tk.Label(frame, image=logo_img, bg="#f4f4f4").pack(side="left")
-                tk.Label(frame, text=f" ({int(r['Votes']):,})",
-                        font=(FONT_NAME,11),
-                        fg="#7f8c8d",
-                        bg="#f4f4f4").pack(side="left")
-
-                col += 1
-                if col == 4:
-                    col = 0
-                    row += 1
-            
-            self.total_input_votes = float(total_votes)
-            self.total_valid_votes = total_valid
-            self.lbl_total_input_votes.config(text=f"Total Votes: {int(self.total_input_votes):,}")
-            self.lbl_threshold.config(text=f"3% Threshold: {int(thresh):,}")
-            self.lbl_total_votes.config(text=f"Total Valid Votes: {int(self.total_valid_votes):,}")
-
-            # 5) Redraw table + chart
-            self.refresh_table_and_chart()
-        except Exception as e:
-            messagebox.showerror("Excel Run Error", str(e))
-
-    def run_from_web(self):
+    def fetch_from_web(self):
         try:
             self.table_images.clear()
             df, total_votes = fetch_pr_votes()
@@ -449,13 +343,7 @@ class ElectionApp:
                             logo_img = self.logo_cache[logo_url]
                         except Exception:
                             pass
-                    row_values = (
-                        str(r["Party"]),
-                        f"{int(r['Votes']):,}",
-                        str(int(r["Seats"]))
-                    )
-
-                    self.tree_qualified.insert("", tk.END, text="", image=logo_img, values=row_values)
+                    self.tree_qualified.insert("", tk.END, text="", image=logo_img, values=(r["Party"], f"{int(r['Votes']):,}", f"{int(r['Seats'])}"))
                     self.table_images.append(logo_img)
 
             # Unqualified grid
@@ -490,69 +378,6 @@ class ElectionApp:
             _beep()
         except Exception as e:
             messagebox.showerror("Web Fetch Error", str(e))
-    
-    def refresh_table_and_chart(self):
-        """Refresh table and chart when running from Excel."""
-
-        # Clear qualified table
-        for item in self.tree_qualified.get_children():
-            self.tree_qualified.delete(item)
-
-        self.table_images.clear()
-
-        if self.result_df is not None and not self.result_df.empty:
-
-            for _, r in self.result_df.iterrows():
-
-                logo_img = None
-                logo_url = r["Logo"] if "Logo" in r and pd.notna(r["Logo"]) else None
-
-                if isinstance(logo_url, str) and logo_url.strip():
-                    try:
-                        if logo_url not in self.logo_cache:
-                            resp = self.session.get(logo_url, timeout=10)
-                            img = Image.open(BytesIO(resp.content)).convert("RGBA")
-                            img = make_white_transparent(img)
-
-                            # store full image for chart
-                            self.chart_logo_cache[logo_url] = np.array(img)
-
-                            # small version for table
-                            table_img = img.resize((24, 24), Image.Resampling.LANCZOS)
-                            self.logo_cache[logo_url] = ImageTk.PhotoImage(table_img)
-
-                        logo_img = self.logo_cache[logo_url]
-
-                    except Exception:
-                        pass
-
-                # Safe string conversion
-                party = str(r["Party"])
-                votes = f"{int(r['Votes']):,}"
-                seats = str(int(r["Seats"]))
-
-                row_values = (party, votes, seats)
-
-                if logo_img is not None:
-                    self.tree_qualified.insert(
-                        "",
-                        "end",
-                        text="",
-                        image=logo_img,
-                        values=row_values
-                    )
-                else:
-                    self.tree_qualified.insert(
-                        "",
-                        "end",
-                        text="",
-                        values=row_values
-                    )
-
-                self.table_images.append(logo_img)
-
-        # Update chart
-        self.update_chart()
 
     def update_chart(self):
         for w in self.chart_frame.winfo_children():

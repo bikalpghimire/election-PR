@@ -40,7 +40,7 @@ from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from pr_excel_helper import update_excel_from_web, read_pr_from_excel
 
 # --- Global Configuration ---
-FONT_NAME = "Kokila"
+FONT_NAME = "Arial"
 MAROON_COLOR = "#800000"
 PRIMARY_TEXT = "#2c3e50"
 SUBTLE_TEXT = "#5d6d7e"
